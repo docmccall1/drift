@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drift 1.0 Simulator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <header class="top-bar">
+      <div class="brand-wrap">
+        <img src="/aa-logo.svg" alt="American Airlines logo" class="aa-logo" />
+        <div>
+        <p class="eyebrow">Drift 1.0 Prototype</p>
+        <h1>Simulation-First Early Drift Detection</h1>
+        </div>
+      </div>
+      <div class="clock-card" id="clock-card">
+        <div>Sim Time: <strong id="sim-time">-</strong></div>
+        <div>Status: <strong id="sim-status">-</strong></div>
+        <div>Speed: <strong id="sim-speed">-</strong></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="role-strip">
+        <div class="role-buttons">
+          <button class="role-btn active" data-role="admin">Admin</button>
+          <button class="role-btn" data-role="physician">Physician</button>
+          <button class="role-btn" data-role="patient">Patient</button>
+        </div>
+        <div class="actor-picker">
+          <label for="actor-select">Actor</label>
+          <select id="actor-select"></select>
+        </div>
+      </section>
+
+      <section id="view-admin" class="view active">
+        <div class="panel admin-tabstrip">
+          <div class="role-buttons">
+            <button class="admin-tab-btn active" data-admin-tab="finance">Finance</button>
+            <button class="admin-tab-btn" data-admin-tab="compare">Compare</button>
+          </div>
+        </div>
+
+        <div class="panel finance-headline admin-pane finance-pane">
+          <h2>At a Glance</h2>
+          <div class="finance-controls">
+            <label>Model
+              <select id="finance-model">
+                <option value="fully_funded">Fully Funded</option>
+                <option value="self_funded">Self Funded</option>
+                <option value="dpc">DPC</option>
+              </select>
+            </label>
+            <label>Compare
+              <select id="finance-compare-model">
+                <option value="self_funded">Self Funded</option>
+                <option value="fully_funded">Fully Funded</option>
+                <option value="dpc">DPC</option>
+              </select>
+            </label>
+            <label>Baseline
+              <select id="finance-baseline-model">
+                <option value="fully_funded">Fully Funded</option>
+                <option value="self_funded">Self Funded</option>
+                <option value="dpc">DPC</option>
+              </select>
+            </label>
+            <label>Window
+              <select id="finance-window-months">
+                <option value="36" selected>36 months</option>
+                <option value="24">24 months</option>
+                <option value="12">12 months</option>
+                <option value="6">6 months</option>
+              </select>
+            </label>
+            <label>Scale mode
+              <select id="finance-scale-mode">
+                <option value="shared" selected>Shared scale</option>
+                <option value="series">Per series scale</option>
+                <option value="locked">Lock range</option>
+              </select>
+            </label>
+            <label>Risk intensity
+              <select id="risk-intensity">
+                <option value="low" selected>Low risk</option>
+                <option value="typical">Typical</option>
+                <option value="high">High risk</option>
+              </select>
+            </label>
+            <label class="inline-check">
+              <input id="intervention-toggle" type="checkbox" />
+              Show early intervention
+            </label>
+            <label>Intervention strength
+              <select id="intervention-strength">
+                <option value="light">Light</option>
+                <option value="moderate" selected>Moderate</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </label>
+            <label class="inline-check">
+              <input id="exact-data-toggle" type="checkbox" />
+              Exact data
+            </label>
+          </div>
+          <div class="kpi-grid at-glance-grid" id="finance-at-glance"></div>
+        </div>
+
+        <div class="panel admin-pane finance-pane">
+          <h2>Spend and Save</h2>
+          <div class="chart-legend" id="finance-legend"></div>
+          <canvas id="finance-cumulative-chart" width="900" height="240"></canvas>
+          <div class="chart-legend" id="finance-monthly-legend"></div>
+          <canvas id="finance-monthly-chart" width="900" height="240"></canvas>
+          <h3>Events Avoided as Money Saved (Bank Value)</h3>
+          <div class="chart-legend" id="finance-bank-legend"></div>
+          <canvas id="finance-bank-chart" width="900" height="220"></canvas>
+          <div id="finance-pinned-tooltip" class="pinned-tooltip"></div>
+          <div id="finance-exact-table-wrap" class="table-wrap" style="display:none;">
+            <table id="finance-exact-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Employer spend</th>
+                  <th>All in spend</th>
+                  <th>Employee OOP</th>
+                  <th>Paid claims</th>
+                  <th>Admin and margin</th>
+                  <th>Stop loss premium</th>
+                  <th>Stop loss reimbursed</th>
+                  <th>DPC fees</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel admin-pane finance-pane">
+          <h2>Simulation Control</h2>
+          <div class="controls-grid">
+            <div class="btn-row">
+              <button id="btn-start">Start</button>
+              <button id="btn-pause">Pause</button>
+              <button id="btn-resume">Resume</button>
+              <button id="btn-reset">Reset Seed</button>
+            </div>
+            <div class="speed-row">
+              <label for="speed-slider">Days/sec</label>
+              <input id="speed-slider" type="range" min="0.05" max="2" step="0.01" />
+              <span id="speed-value">-</span>
+            </div>
+            <div class="jump-row">
+              <label for="jump-date">Jump to date</label>
+              <input id="jump-date" type="date" />
+              <button id="btn-jump">Jump</button>
+            </div>
+            <div class="export-row">
+              <button id="btn-export">Export Events CSV</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel admin-pane finance-pane">
+          <h2>Population Stability</h2>
+          <div class="filter-row">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="diabetes">Diabetes</button>
+            <button class="filter-btn" data-filter="hypertension">Hypertension</button>
+            <button class="filter-btn" data-filter="uncategorized">Uncategorized Utilization</button>
+          </div>
+          <div class="kpi-grid" id="admin-kpis"></div>
+          <div class="chart-legend" id="population-legend"></div>
+          <canvas id="admin-trend" width="900" height="260"></canvas>
+        </div>
+
+        <div class="panel split admin-pane finance-pane">
+          <div>
+            <h3>Operational Workload</h3>
+            <div id="admin-workload"></div>
+            <h3>Acceptance Monitor</h3>
+            <div id="admin-acceptance"></div>
+          </div>
+          <div>
+            <h3>Top Risk Drivers</h3>
+            <ul id="driver-list"></ul>
+            <h3>Tasks</h3>
+            <div id="task-list"></div>
+          </div>
+        </div>
+
+        <div class="panel admin-pane compare-pane" id="compare-headline-panel">
+          <h2>Compare Spend and Save</h2>
+          <div class="kpi-grid" id="compare-at-glance"></div>
+          <canvas id="compare-delta-chart" width="900" height="240"></canvas>
+        </div>
+
+        <div class="panel admin-pane compare-pane">
+          <h3>Monthly Comparison (Exact Dollars)</h3>
+          <div class="table-wrap">
+            <table id="compare-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Selected Employer Spend</th>
+                  <th>Compare Employer Spend</th>
+                  <th>Selected Save vs Baseline</th>
+                  <th>Compare Save vs Baseline</th>
+                  <th>Delta (Selected - Compare)</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-physician" class="view">
+        <div class="panel">
+          <h2>My Panel</h2>
+          <div id="physician-stats" class="inline-stats"></div>
+          <div class="table-wrap">
+            <table id="physician-table">
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Status</th>
+                  <th>CDI</th>
+                  <th>Velocity</th>
+                  <th>Top Drivers</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel split">
+          <div>
+            <h3>Newly Yellow This Week</h3>
+            <ul id="new-yellow"></ul>
+            <h3>Red Candidate Awaiting Review</h3>
+            <ul id="red-await"></ul>
+          </div>
+          <div>
+            <h3>Explainability</h3>
+            <p class="muted">Select a patient row to load weekly signal details.</p>
+            <div id="explainability"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-patient" class="view">
+        <div class="panel patient-surface">
+          <div class="patient-hero-wrap">
+            <div class="patient-head">
+              <div>
+                <p class="muted">Health</p>
+                <h3 id="patient-name">-</h3>
+              </div>
+              <div class="status-pill" id="patient-status">-</div>
+            </div>
+            <div class="hero-trend-card" id="hero-trend-card">
+              <div class="hero-message-row">
+                <h2 id="patient-hero-message">Your health trend is loading.</h2>
+                <span class="sim-label">Simulated trend based on assumptions</span>
+              </div>
+              <p id="patient-encouragement" class="hero-encouragement"></p>
+              <canvas id="patient-health-trend" width="900" height="240"></canvas>
+            </div>
+          </div>
+
+          <div class="rings-grid">
+            <div class="ring-card">
+              <h3>Access</h3>
+              <div class="ring-meter" id="ring-access"><span id="ring-access-value">0</span></div>
+            </div>
+            <div class="ring-card">
+              <h3>Prevention</h3>
+              <div class="ring-meter" id="ring-prevention"><span id="ring-prevention-value">0</span></div>
+            </div>
+            <div class="ring-card">
+              <h3>Stability</h3>
+              <div class="ring-meter" id="ring-stability"><span id="ring-stability-value">0</span></div>
+            </div>
+          </div>
+
+          <div class="panel split patient-grid-panels">
+            <div>
+              <h3>What Changed</h3>
+              <div id="patient-what-changed" class="kpi-grid"></div>
+              <h3>RN Care Manager Next Steps</h3>
+              <div id="patient-rn-recommendations"></div>
+              <h3>Health Actions</h3>
+              <div id="patient-actions-panel"></div>
+              <button id="btn-checkin">Request Support Check-In</button>
+              <p id="patient-review-note" class="muted"></p>
+            </div>
+            <div>
+              <h3>Health Events</h3>
+              <ul id="patient-events-feed" class="events-feed"></ul>
+              <label class="overlay-toggle">
+                <input id="health-spend-toggle" type="checkbox" />
+                Show Health to Spend overlay
+              </label>
+              <div id="health-spend-overlay" class="health-spend-overlay"></div>
+            </div>
+          </div>
+
+          <details class="costs-drawer">
+            <summary>Costs and benefits</summary>
+            <div id="patient-costs-drawer"></div>
+          </details>
+
+          <p id="patient-disclaimer" class="patient-disclaimer">
+            These are simulated trends for demonstration and planning. Not medical advice.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
