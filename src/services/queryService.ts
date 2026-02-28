@@ -367,6 +367,9 @@ export const getPhysicianPanel = (providerId: string): {
     status: PatientStatus;
     cdi: number;
     velocity: number;
+    diabetes: boolean;
+    hypertension: boolean;
+    behavioralHealth: boolean;
     topDrivers: SignalContribution[];
     recommendedAction: string;
   }>;
@@ -398,6 +401,9 @@ export const getPhysicianPanel = (providerId: string): {
       status: row.status,
       cdi: Number(row.cdi_total.toFixed(1)),
       velocity: Number(row.velocity.toFixed(1)),
+      diabetes: row.diabetes === 1,
+      hypertension: row.hypertension === 1,
+      behavioralHealth: row.behavioral_health === 1,
       topDrivers: parseSignals(row.top_signals_json).slice(0, 3),
       recommendedAction: recommendedAction(row.status)
     }))
@@ -906,7 +912,7 @@ export const getPatientView = (patientId: string): {
     prevented: number;
   }>;
 
-  const whatChanged = latestMonth && priorMonth
+  const whatChanged: Array<{ label: string; delta: number; direction: 'up' | 'down' | 'flat' }> = latestMonth && priorMonth
     ? [
         {
           label: 'More primary care touchpoints this month',

@@ -1,5 +1,6 @@
 const appState = {
   role: 'admin',
+  adminTab: 'finance',
   actorId: 'admin-sim',
   roleOptions: null,
   adminFilter: 'all',
@@ -17,6 +18,15 @@ const appState = {
     exactData: false,
     lockedRange: { min: 0, max: 500000 },
     pinnedMonth: null
+  },
+  physician: {
+    riskFilter: 'all',
+    diseaseFilter: 'all',
+    groupByDisease: false
+  },
+  drift: {
+    latestPayload: null,
+    autoOpenedForSignal: false
   }
 };
 
@@ -45,6 +55,107 @@ const formatMoneyShort = (value) => {
 };
 
 const withExactTitle = (shortValue, exactValue) => `<span title="${formatMoneyExact(exactValue)} (hover to reveal exact)">${shortValue}</span>`;
+
+const interventionCatalog = {
+  diabetes: {
+    label: 'Diabetes',
+    backing:
+      'Evidence-backed focus: USPSTF supports intensive behavioral interventions for adults with cardiovascular risk factors, and AAFP guidance supports structured diabetes self-management support plus medication adherence follow-up.',
+    actions: ['A1c follow-up cadence', 'Medication adherence coaching', 'Nutrition + activity support']
+  },
+  hypertension: {
+    label: 'Hypertension',
+    backing:
+      'Evidence-backed focus: USPSTF supports blood pressure screening and cardiovascular risk reduction counseling, and AAFP guidance supports team-based BP management with adherence reinforcement.',
+    actions: ['Home BP checks', 'Therapy titration follow-up', 'Low-sodium lifestyle coaching']
+  }
+};
+
+const getDriftSignal = (monthlySeries) => {
+  if (!Array.isArray(monthlySeries) || monthlySeries.length < 4) {
+    return { drifting: false, risePct: 0 };
+  }
+  const recent = monthlySeries.slice(-4);
+  const start = recent[0] || 1;
+  const end = recent[recent.length - 1] || start;
+  const risePct = ((end - start) / Math.max(start, 1)) * 100;
+  return {
+    drifting: risePct >= 5,
+    risePct
+  };
+};
+
+const simulateDriftWindows = (monthlySeries, condition, intensity) => {
+  const base = monthlySeries.slice(-6);
+  if (!base.length) {
+    return {
+      doNothingTotal: 0,
+      interventionTotal: 0,
+      saved: 0,
+      avoidedEvents: 0
+    };
+  }
+
+  const intensityFactor = intensity === 'aggressive' ? 0.22 : intensity === 'light' ? 0.1 : 0.16;
+  const drift = getDriftSignal(monthlySeries);
+  const driftFactor = Math.max(0.012, Math.min(0.05, (drift.risePct || 0) / 100 / 2));
+  const conditionFactor = condition === 'diabetes' ? 1.08 : 1.04;
+
+  let doNothingTotal = 0;
+  let interventionTotal = 0;
+  let cursorNoIntervention = base[base.length - 1];
+  let cursorIntervention = base[base.length - 1];
+
+  for (let i = 0; i < 6; i += 1) {
+    const monthGrowth = 1 + driftFactor * conditionFactor;
+    cursorNoIntervention *= monthGrowth;
+    doNothingTotal += cursorNoIntervention;
+
+    const ramp = (i + 1) / 6;
+    const interventionDrop = intensityFactor * ramp;
+    const interventionGrowth = Math.max(1.001, monthGrowth * (1 - interventionDrop));
+    cursorIntervention *= interventionGrowth;
+    interventionTotal += cursorIntervention;
+  }
+
+  const saved = Math.max(0, doNothingTotal - interventionTotal);
+  const avoidedEvents = Math.max(1, Math.round(saved / 28000));
+  return { doNothingTotal, interventionTotal, saved, avoidedEvents };
+};
+
+const renderDriftSimulation = () => {
+  const payload = appState.drift.latestPayload;
+  if (!payload?.monthly?.selected?.length) return;
+  const selectedMonthly = payload.monthly.selected.map((row) => row.employer_spend);
+  const condition = $('drift-condition')?.value || 'diabetes';
+  const intensity = $('drift-intensity')?.value || 'moderate';
+  const profile = interventionCatalog[condition] || interventionCatalog.diabetes;
+  const result = simulateDriftWindows(selectedMonthly, condition, intensity);
+
+  $('drift-backing').innerHTML = `
+    <div class="muted">${profile.label} pathway</div>
+    <div class="value">${profile.actions.join(' · ')}</div>
+    <div class="muted" style="margin-top:8px;">${profile.backing}</div>
+  `;
+
+  $('drift-results').innerHTML = `
+    <div class="drift-window">
+      <h4>Do nothing (6-month)</h4>
+      <div class="value">${withExactTitle(formatMoneyShort(result.doNothingTotal), result.doNothingTotal)}</div>
+      <div class="muted">Trend continues with current drift.</div>
+    </div>
+    <div class="drift-window">
+      <h4>Apply intervention (6-month)</h4>
+      <div class="value">${withExactTitle(formatMoneyShort(result.interventionTotal), result.interventionTotal)}</div>
+      <div class="muted">Calmer progression with structured early support.</div>
+    </div>
+    <div class="drift-window">
+      <h4>Difference</h4>
+      <div class="value">${withExactTitle(formatMoneyShort(result.saved), result.saved)}</div>
+      <div class="muted">Estimated avoided spend and about ${result.avoidedEvents} avoidable events prevented.</div>
+    </div>
+  `;
+};
 
 const apiFetch = async (path, options = {}) => {
   const headers = {
@@ -89,7 +200,22 @@ const setRole = (role) => {
   });
 
   populateActorSelector();
+  if (role === 'admin') {
+    setAdminTab(appState.adminTab);
+  }
   refreshActiveView();
+};
+
+const setAdminTab = (tab) => {
+  appState.adminTab = tab;
+  document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.adminTab === tab);
+  });
+  document.querySelectorAll('.admin-pane').forEach((pane) => {
+    const isFinance = pane.classList.contains('finance-pane');
+    const isCompare = pane.classList.contains('compare-pane');
+    pane.classList.toggle('active', (tab === 'finance' && isFinance) || (tab === 'compare' && isCompare));
+  });
 };
 
 const populateActorSelector = () => {
@@ -459,6 +585,104 @@ const drawBankChart = (canvas, labels, bankSeries, exactMode) => {
   }
 };
 
+const animateNumber = (el, from, to, formatter) => {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reducedMotion) {
+    el.textContent = formatter(to);
+    return;
+  }
+  const start = performance.now();
+  const duration = 680;
+  const tick = (now) => {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - (1 - t) ** 3;
+    const value = from + (to - from) * eased;
+    el.textContent = formatter(value);
+    if (t < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+};
+
+const renderCompareView = (payload, selectedMonthly, compareMonthly, baselineMonthly, interventionSeries) => {
+  const labels = payload.monthly.selected.map((row) => row.month);
+  const selectedTotal = selectedMonthly.reduce((a, b) => a + b, 0);
+  const compareTotal = compareMonthly.reduce((a, b) => a + b, 0);
+  const baselineTotal = baselineMonthly.reduce((a, b) => a + b, 0);
+  const compliantTotal = appState.finance.interventionEnabled
+    ? interventionSeries.reduce((a, b) => a + b, 0)
+    : selectedTotal * 0.9;
+  const nonCompliantTotal = compareTotal * 1.14;
+
+  const compliantEventsAvoided = Math.max(0, Math.round((nonCompliantTotal - compliantTotal) / 1100));
+  const compliantStability = Math.max(48, Math.min(92, 82 - ((compliantTotal - baselineTotal) / Math.max(1, baselineTotal)) * 20));
+  const nonCompliantStability = Math.max(22, Math.min(78, 58 - ((nonCompliantTotal - baselineTotal) / Math.max(1, baselineTotal)) * 24));
+
+  $('compare-at-glance').innerHTML = `
+    <div class="kpi"><div class="muted">Selected Save vs Baseline</div><div class="value">${withExactTitle(formatMoneyShort(baselineTotal - selectedTotal), baselineTotal - selectedTotal)}</div></div>
+    <div class="kpi"><div class="muted">Compare Save vs Baseline</div><div class="value">${withExactTitle(formatMoneyShort(baselineTotal - compareTotal), baselineTotal - compareTotal)}</div></div>
+    <div class="kpi"><div class="muted">Intervention Opportunity</div><div class="value">${withExactTitle(formatMoneyShort(nonCompliantTotal - compliantTotal), nonCompliantTotal - compliantTotal)}</div></div>
+    <div class="kpi"><div class="muted">Avoidable Events Opportunity</div><div class="value">${compliantEventsAvoided}</div></div>
+  `;
+
+  $('impact-theater').innerHTML = `
+    <div class="impact-card compliant">
+      <h4>Compliant + early intervention</h4>
+      <div class="impact-row"><span>Projected spend</span><span class="impact-value" data-anim="compliantSpend">$0</span></div>
+      <div class="impact-row"><span>Expected stability</span><span class="impact-value" data-anim="compliantStability">0</span></div>
+      <div class="impact-row"><span>Avoidable events</span><span class="impact-value">${Math.max(0, Math.round(compliantEventsAvoided * 0.35))}</span></div>
+      <div class="muted">Care navigation, refill adherence, and same-day routing suppress avoidable spend spikes.</div>
+    </div>
+    <div class="impact-card noncompliant">
+      <h4>Non-compliant, delayed intervention</h4>
+      <div class="impact-row"><span>Projected spend</span><span class="impact-value" data-anim="nonCompliantSpend">$0</span></div>
+      <div class="impact-row"><span>Expected stability</span><span class="impact-value" data-anim="nonCompliantStability">0</span></div>
+      <div class="impact-row"><span>Avoidable events</span><span class="impact-value">${Math.max(1, Math.round(compliantEventsAvoided * 1.9))}</span></div>
+      <div class="muted">Missed refills and delayed primary care touchpoints compound acute event burden and costs.</div>
+    </div>
+  `;
+
+  const compSpendEl = document.querySelector('[data-anim="compliantSpend"]');
+  const nonCompSpendEl = document.querySelector('[data-anim="nonCompliantSpend"]');
+  const compStabEl = document.querySelector('[data-anim="compliantStability"]');
+  const nonCompStabEl = document.querySelector('[data-anim="nonCompliantStability"]');
+  if (compSpendEl) animateNumber(compSpendEl, 0, compliantTotal, formatMoneyShort);
+  if (nonCompSpendEl) animateNumber(nonCompSpendEl, 0, nonCompliantTotal, formatMoneyShort);
+  if (compStabEl) animateNumber(compStabEl, 0, compliantStability, (v) => `${v.toFixed(0)}/100`);
+  if (nonCompStabEl) animateNumber(nonCompStabEl, 0, nonCompliantStability, (v) => `${v.toFixed(0)}/100`);
+
+  const deltaSeries = selectedMonthly.map((value, idx) => compareMonthly[idx] - value);
+  drawFinanceChart($('compare-delta-chart'), {
+    labels,
+    minY: Math.min(...deltaSeries, 0) * 1.15,
+    maxY: Math.max(...deltaSeries, 0) * 1.15 + 1,
+    scaleMode: 'shared',
+    exactMode: appState.finance.exactData,
+    yFormatter: formatMoneyShort,
+    markers: payload.monthly.catastrophicMarkers,
+    series: [{ label: 'Monthly advantage over compare', color: '#0b6aa8', width: 3, values: deltaSeries }]
+  });
+
+  $('compare-table').querySelector('tbody').innerHTML = labels
+    .map((month, idx) => {
+      const sel = selectedMonthly[idx];
+      const cmp = compareMonthly[idx];
+      const base = baselineMonthly[idx];
+      const selSave = base - sel;
+      const cmpSave = base - cmp;
+      return `
+        <tr>
+          <td>${month.slice(0, 7)}</td>
+          <td>${formatMoneyExact(sel)}</td>
+          <td>${formatMoneyExact(cmp)}</td>
+          <td>${formatMoneyExact(selSave)}</td>
+          <td>${formatMoneyExact(cmpSave)}</td>
+          <td>${formatMoneyExact(sel - cmp)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+
 const renderFinance = async () => {
   $('finance-model').value = appState.finance.model;
   $('finance-compare-model').value = appState.finance.compareModel;
@@ -476,6 +700,7 @@ const renderFinance = async () => {
       appState.finance.windowMonths
     )}`
   );
+  appState.drift.latestPayload = payload;
 
   $('finance-at-glance').innerHTML = [
     ['Total Spend (Employer)', payload.atGlance.totalSpendEmployer, payload.atGlance.deltaVsBaseline],
@@ -520,6 +745,19 @@ const renderFinance = async () => {
     }
     return out;
   })();
+  const drift = getDriftSignal(selectedMonthly);
+  const driftAlert = $('drift-alert');
+  driftAlert.style.display = drift.drifting ? 'flex' : 'none';
+  if (drift.drifting && !appState.drift.autoOpenedForSignal) {
+    $('drift-modal').style.display = 'flex';
+    appState.drift.autoOpenedForSignal = true;
+  }
+  if (!drift.drifting) {
+    appState.drift.autoOpenedForSignal = false;
+  }
+  if (drift.drifting) {
+    renderDriftSimulation();
+  }
   const cum = (arr) => arr.reduce((acc, v) => [...acc, (acc[acc.length - 1] || 0) + v], []);
   const selectedCum = cum(selectedMonthly);
   const baselineCum = cum(baselineMonthly);
@@ -595,6 +833,8 @@ const renderFinance = async () => {
     <span class="legend-item"><span class="legend-swatch" style="background:#003a70;"></span>Bank value (stability reserve)</span>
     <span class="legend-item"><span class="legend-swatch" style="background:rgba(31,143,104,0.45);"></span>Avoided events saved dollars</span>
   `;
+
+  renderCompareView(payload, selectedMonthly, compareMonthly, baselineMonthly, interventionSeries);
 
   const tbody = $('finance-exact-table').querySelector('tbody');
   tbody.innerHTML = payload.monthly.selected
@@ -740,19 +980,127 @@ const renderAdmin = async () => {
   `;
 };
 
+const physicianRiskBucket = (status) => {
+  if (status === 'RED' || status === 'RED_CANDIDATE') return 'high';
+  if (status === 'YELLOW' || status === 'YELLOW_OBSERVATION') return 'yellow';
+  return 'low';
+};
+
+const physicianDiseaseLabel = (item) => {
+  const tags = [];
+  if (item.diabetes) tags.push('Diabetes');
+  if (item.hypertension) tags.push('Hypertension');
+  if (item.behavioralHealth) tags.push('Behavioral Health');
+  if (tags.length === 0) return 'General';
+  if (tags.length > 1) return 'Multi-condition';
+  return tags[0];
+};
+
+const physicianMatchesDiseaseFilter = (item, filter) => {
+  if (filter === 'all') return true;
+  if (filter === 'diabetes') return item.diabetes;
+  if (filter === 'hypertension') return item.hypertension;
+  if (filter === 'behavioral') return item.behavioralHealth;
+  if (filter === 'metabolic') return item.diabetes || item.hypertension;
+  if (filter === 'multi') {
+    const count = [item.diabetes, item.hypertension, item.behavioralHealth].filter(Boolean).length;
+    return count > 1;
+  }
+  return true;
+};
+
 const renderPhysician = async () => {
   const payload = await apiFetch('/physician/panel');
+  $('physician-risk-filter').value = appState.physician.riskFilter;
+  $('physician-disease-filter').value = appState.physician.diseaseFilter;
+  $('physician-group-toggle').checked = appState.physician.groupByDisease;
+
+  const clusterCounts = payload.panel.reduce(
+    (acc, item) => {
+      const bucket = physicianRiskBucket(item.status);
+      if (bucket === 'high') acc.high += 1;
+      if (bucket === 'yellow') acc.yellow += 1;
+      if (bucket === 'low') acc.low += 1;
+      return acc;
+    },
+    { high: 0, yellow: 0, low: 0 }
+  );
+
+  $('physician-clusters').innerHTML = `
+    <div class="cluster-card high">
+      <div class="muted">High Risk Cluster</div>
+      <div class="value">${clusterCounts.high}</div>
+      <div class="muted">RED + RED CANDIDATE</div>
+    </div>
+    <div class="cluster-card yellow">
+      <div class="muted">Yellow Risk Cluster</div>
+      <div class="value">${clusterCounts.yellow}</div>
+      <div class="muted">Needs near-term follow-up</div>
+    </div>
+    <div class="cluster-card">
+      <div class="muted">Stable Cluster</div>
+      <div class="value">${clusterCounts.low}</div>
+      <div class="muted">Routine cadence</div>
+    </div>
+  `;
+
+  const filteredPanel = payload.panel.filter((item) => {
+    const riskBucket = physicianRiskBucket(item.status);
+    if (appState.physician.riskFilter === 'high' && riskBucket !== 'high') return false;
+    if (appState.physician.riskFilter === 'yellow_plus' && riskBucket === 'low') return false;
+    return physicianMatchesDiseaseFilter(item, appState.physician.diseaseFilter);
+  });
+
+  const groupedNode = $('physician-grouped');
+  if (appState.physician.groupByDisease) {
+    const groupMap = new Map();
+    filteredPanel.forEach((item) => {
+      const key = physicianDiseaseLabel(item);
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key).push(item);
+    });
+    groupedNode.style.display = 'grid';
+    groupedNode.innerHTML = Array.from(groupMap.entries())
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([label, members]) => {
+        const highCount = members.filter((m) => physicianRiskBucket(m.status) === 'high').length;
+        return `
+          <div class="group-card">
+            <h4>${label}</h4>
+            <div class="muted">${members.length} patients · ${highCount} high risk</div>
+            <ul class="group-list">
+              ${members
+                .slice(0, 5)
+                .map((m) => `<li>${m.name} · <strong>${m.status}</strong> · CDI ${m.cdi.toFixed(1)}</li>`)
+                .join('')}
+            </ul>
+          </div>
+        `;
+      })
+      .join('');
+  } else {
+    groupedNode.style.display = 'none';
+    groupedNode.innerHTML = '';
+  }
+
   const tbody = $('physician-table').querySelector('tbody');
   tbody.innerHTML = '';
 
-  payload.panel.forEach((item) => {
+  filteredPanel.forEach((item) => {
     const row = document.createElement('tr');
+    const diseases = [];
+    if (item.diabetes) diseases.push('Diabetes');
+    if (item.hypertension) diseases.push('Hypertension');
+    if (item.behavioralHealth) diseases.push('Behavioral');
     row.innerHTML = `
       <td>${item.name}</td>
       <td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
       <td>${item.cdi.toFixed(1)}</td>
       <td>${item.velocity >= 0 ? '+' : ''}${item.velocity.toFixed(1)}</td>
-      <td>${item.topDrivers.map((d) => d.signal).join(', ') || 'steady'}</td>
+      <td>
+        <div>${item.topDrivers.map((d) => d.signal).join(', ') || 'steady'}</div>
+        <div class="muted">${diseases.join(' · ') || 'General population'}</div>
+      </td>
       <td>
         <button data-note-patient="${item.patient_id}">Note Stub</button>
       </td>
@@ -785,6 +1133,7 @@ const renderPhysician = async () => {
 
   $('physician-stats').innerHTML = `
     <div class="kpi"><div class="muted">Panel Size</div><div class="value">${payload.panel.length}</div></div>
+    <div class="kpi"><div class="muted">Visible with Filters</div><div class="value">${filteredPanel.length}</div></div>
     <div class="kpi"><div class="muted">New Yellow</div><div class="value">${payload.newlyYellowThisWeek.length}</div></div>
     <div class="kpi"><div class="muted">Red Candidate Queue</div><div class="value">${payload.redCandidatesAwaitingReview.length}</div></div>
   `;
@@ -797,12 +1146,20 @@ const renderPhysician = async () => {
     .map((entry) => `<li>${entry.name} · CDI ${entry.cdi.toFixed(1)} · Task ${entry.task_id.slice(0, 8)}</li>`)
     .join('');
 
-  if (!appState.selectedPhysicianPatient && payload.panel.length > 0) {
-    appState.selectedPhysicianPatient = payload.panel[0].patient_id;
+  if (!appState.selectedPhysicianPatient && filteredPanel.length > 0) {
+    appState.selectedPhysicianPatient = filteredPanel[0].patient_id;
   }
 
-  if (appState.selectedPhysicianPatient) {
+  if (
+    appState.selectedPhysicianPatient &&
+    filteredPanel.some((item) => item.patient_id === appState.selectedPhysicianPatient)
+  ) {
     await loadExplainability(appState.selectedPhysicianPatient);
+  } else if (filteredPanel.length > 0) {
+    appState.selectedPhysicianPatient = filteredPanel[0].patient_id;
+    await loadExplainability(appState.selectedPhysicianPatient);
+  } else {
+    $('explainability').innerHTML = '<p class="muted">No patients match this filter.</p>';
   }
 };
 
@@ -1084,6 +1441,13 @@ const refreshActiveView = async () => {
 };
 
 const initControls = () => {
+  document.querySelectorAll('.admin-tab-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      setAdminTab(button.dataset.adminTab);
+    });
+  });
+  setAdminTab(appState.adminTab);
+
   roleButtons.forEach((button) => {
     button.addEventListener('click', () => {
       setRole(button.dataset.role);
@@ -1171,6 +1535,47 @@ const initControls = () => {
     });
     alert('Check-in request submitted.');
     await refreshActiveView();
+  });
+
+  $('physician-risk-filter').addEventListener('change', async (event) => {
+    appState.physician.riskFilter = event.target.value;
+    if (appState.role === 'physician') {
+      await renderPhysician();
+    }
+  });
+  $('physician-disease-filter').addEventListener('change', async (event) => {
+    appState.physician.diseaseFilter = event.target.value;
+    if (appState.role === 'physician') {
+      await renderPhysician();
+    }
+  });
+  $('physician-group-toggle').addEventListener('change', async (event) => {
+    appState.physician.groupByDisease = event.target.checked;
+    if (appState.role === 'physician') {
+      await renderPhysician();
+    }
+  });
+
+  $('btn-open-drift-modal').addEventListener('click', () => {
+    $('drift-modal').style.display = 'flex';
+    renderDriftSimulation();
+  });
+  $('btn-close-drift-modal').addEventListener('click', () => {
+    $('drift-modal').style.display = 'none';
+  });
+  $('drift-modal').addEventListener('click', (event) => {
+    if (event.target.id === 'drift-modal') {
+      $('drift-modal').style.display = 'none';
+    }
+  });
+  $('btn-run-drift-sim').addEventListener('click', () => {
+    renderDriftSimulation();
+  });
+  $('drift-condition').addEventListener('change', () => {
+    renderDriftSimulation();
+  });
+  $('drift-intensity').addEventListener('change', () => {
+    renderDriftSimulation();
   });
 
   const refreshFinanceOnly = async () => {

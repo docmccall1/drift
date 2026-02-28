@@ -46,6 +46,10 @@
 
         <div class="panel finance-headline admin-pane finance-pane">
           <h2>At a Glance</h2>
+          <div id="drift-alert" class="drift-alert" style="display:none;">
+            <strong>Drift signal detected:</strong> monthly employer spend is trending up.
+            <button id="btn-open-drift-modal">Simulate intervention</button>
+          </div>
           <div class="finance-controls">
             <label>Model
               <select id="finance-model">
@@ -195,6 +199,7 @@
         <div class="panel admin-pane compare-pane" id="compare-headline-panel">
           <h2>Compare Spend and Save</h2>
           <div class="kpi-grid" id="compare-at-glance"></div>
+          <div class="impact-theater" id="impact-theater"></div>
           <canvas id="compare-delta-chart" width="900" height="240"></canvas>
         </div>
 
@@ -222,6 +227,31 @@
         <div class="panel">
           <h2>My Panel</h2>
           <div id="physician-stats" class="inline-stats"></div>
+          <div class="filter-row physician-filter-row">
+            <label>Risk focus
+              <select id="physician-risk-filter">
+                <option value="all" selected>All risk levels</option>
+                <option value="yellow_plus">Yellow + High risk</option>
+                <option value="high">High risk only</option>
+              </select>
+            </label>
+            <label>Disease process
+              <select id="physician-disease-filter">
+                <option value="all" selected>All patients</option>
+                <option value="diabetes">Diabetes</option>
+                <option value="hypertension">Hypertension</option>
+                <option value="behavioral">Behavioral health</option>
+                <option value="metabolic">Metabolic (DM/HTN)</option>
+                <option value="multi">Multi-condition</option>
+              </select>
+            </label>
+            <label class="toggle-inline">
+              <input type="checkbox" id="physician-group-toggle" />
+              Group by disease
+            </label>
+          </div>
+          <div id="physician-clusters" class="risk-clusters"></div>
+          <div id="physician-grouped" class="physician-groups" style="display:none;"></div>
           <div class="table-wrap">
             <table id="physician-table">
               <thead>
@@ -322,6 +352,34 @@
         </div>
       </section>
     </main>
+
+    <div id="drift-modal" class="drift-modal" style="display:none;">
+      <div class="drift-modal-card">
+        <div class="drift-modal-head">
+          <h3>Intervention Simulator</h3>
+          <button id="btn-close-drift-modal">Close</button>
+        </div>
+        <p class="muted">Projected 6-month spend window based on current drift trajectory.</p>
+        <div class="drift-form">
+          <label>Condition focus
+            <select id="drift-condition">
+              <option value="diabetes">Diabetes</option>
+              <option value="hypertension">Hypertension</option>
+            </select>
+          </label>
+          <label>Program intensity
+            <select id="drift-intensity">
+              <option value="light">Light</option>
+              <option value="moderate" selected>Moderate</option>
+              <option value="aggressive">Aggressive</option>
+            </select>
+          </label>
+          <button id="btn-run-drift-sim">Run comparison</button>
+        </div>
+        <div id="drift-backing" class="kpi"></div>
+        <div class="drift-results" id="drift-results"></div>
+      </div>
+    </div>
 
     <script src="/app.js" defer></script>
   </body>
