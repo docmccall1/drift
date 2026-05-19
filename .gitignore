@@ -5,3 +5,11 @@ dist
 *.sqlite-wal
 .env
 .local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+.venv/
